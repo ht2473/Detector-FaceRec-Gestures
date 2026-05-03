@@ -1,0 +1,32 @@
+# --- Окружение и зависимости ---
+venv/
+.env
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Специфично ---
+logs/
+*.log
+
+# тяжелые модели
+models/*.onnx
+models/*.pt
+models/*.weights
+
+# Игнорируем базу данных лиц
+Face DB/
+
+# Игнорируем результаты работы программы
+output/
+*.mp4
+*.avi
+*.jpg
+*.png
+
+# --- Системные файлы ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+

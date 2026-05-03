@@ -1,0 +1,28 @@
+# YOLO26 Detector & FaceRec - Конфигурация по умолчанию
+app:
+  name: "Detector + FaceRec + Gestures"
+  version: "2.1.0"
+  author: "Robot"
+
+model:
+  default: "yolo26s.pt"
+  auto_download: false
+
+detection:
+  confidence_threshold: 0.25
+  iou_threshold: 0.45
+  image_size: 640
+
+face_recognition:
+  det_threshold: 0.50
+  rec_similarity: 0.35
+  face_db_dir: ""  # Путь к папке с фото (имя файла = имя человека)
+  image_size: 320
+
+device:
+  prefer: "cpu"  # cpu
+
+export:
+  save_video: true
+  save_json: true
+  output_dir: "output"

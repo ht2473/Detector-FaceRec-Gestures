@@ -13,8 +13,6 @@ from loguru import logger
 MEDIAPIPE_AVAILABLE = False
 try:
     import mediapipe as mp
-    from mediapipe.tasks import python
-    from mediapipe.tasks.python import vision
     from mediapipe.framework.formats import landmark_pb2
     
     mp_hands_connections = mp.solutions.hands.HAND_CONNECTIONS
@@ -28,6 +26,7 @@ except Exception as e:
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent.parent
 TASK_FILE_PATH = BASE_DIR / "hand_landmarker.task"
+OUTPUT_DIR = BASE_DIR / "output"
 
 class GestureRecognitionEngine(QThread):
     # Сигналы для UI
@@ -59,6 +58,10 @@ class GestureRecognitionEngine(QThread):
         self.hands_model = None
         self.cap: Optional[cv2.VideoCapture] = None
         self.start_time: float = 0.0
+        self.last_ts: int = -1  # Для строгого возрастания таймстемпов MediaPipe
+        
+        self.is_recording = False
+        self.video_writer = None
 
     def _download_model_if_needed(self):
         """Гарантирует наличие файла модели"""
@@ -90,20 +93,20 @@ class GestureRecognitionEngine(QThread):
         
         try:
             self._download_model_if_needed()
-            delegate = python.BaseOptions.Delegate.GPU if self.device == "gpu" else python.BaseOptions.Delegate.CPU
+            delegate = mp.tasks.BaseOptions.Delegate.GPU if self.device == "gpu" else mp.tasks.BaseOptions.Delegate.CPU
             
             # Настройка режима работы модели
-            mode = vision.RunningMode.IMAGE if self.source_type == "image" else vision.RunningMode.VIDEO
+            mode = mp.tasks.vision.RunningMode.IMAGE if self.source_type == "image" else mp.tasks.vision.RunningMode.VIDEO
 
-            options = vision.HandLandmarkerOptions(
-                base_options=python.BaseOptions(model_asset_path=str(TASK_FILE_PATH), delegate=delegate),
+            options = mp.tasks.vision.HandLandmarkerOptions(
+                base_options=mp.tasks.BaseOptions(model_asset_path=str(TASK_FILE_PATH), delegate=delegate),
                 running_mode=mode,
                 num_hands=self.max_num_hands,
                 min_hand_detection_confidence=self.min_det_conf,
                 min_hand_presence_confidence=self.min_track_conf,
                 min_tracking_confidence=self.min_track_conf
             )
-            self.hands_model = vision.HandLandmarker.create_from_options(options)
+            self.hands_model = mp.tasks.vision.HandLandmarker.create_from_options(options)
             logger.info(f"Engine started on {self.device.upper()} ({self.source_type})")
         except Exception as e:
             self.error_occurred.emit(f"Init error: {e}")
@@ -144,13 +147,26 @@ class GestureRecognitionEngine(QThread):
 
     def _process_stream_loop(self):
         self.start_time = time.time()
+        self.last_ts = -1
         frame_count = 0
+        
+        if not OUTPUT_DIR.exists():
+            OUTPUT_DIR.mkdir(parents=True)
+            
         while self.running:
             ret, frame = self.cap.read()
             if not ret: break
             
             frame_count += 1
             latency, hands_count, data, out_frame = self._run_inference(frame)
+            
+            # Логика записи видео
+            if self.is_recording:
+                if self.video_writer is None:
+                    path = OUTPUT_DIR / f"gesture_rec_{int(time.time())}.mp4"
+                    h, w = out_frame.shape[:2]
+                    self.video_writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*'mp4v'), 30, (w, h))
+                self.video_writer.write(out_frame)
             
             # Отправляем кадр и метрики в UI
             self.frame_ready.emit(self._convert_to_qimage(out_frame))
@@ -169,6 +185,10 @@ class GestureRecognitionEngine(QThread):
             results = self.hands_model.detect(mp_image)
         else:
             ts = int((time.time() - self.start_time) * 1000)
+            # ГАРАНТИЯ строгого возрастания таймстемпа для MediaPipe
+            if ts <= self.last_ts:
+                ts = self.last_ts + 1
+            self.last_ts = ts
             results = self.hands_model.detect_for_video(mp_image, ts)
         
         latency = (time.time() - t0) * 1000
@@ -197,12 +217,27 @@ class GestureRecognitionEngine(QThread):
                 cv2.putText(out_frame, f"{handedness}: {gesture}", (x1, y1 - 10), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-                data_list.append({"hand_id": idx, "gesture": gesture, "confidence": float(conf)})
+                # Исправлено: добавлен ключ handedness
+                data_list.append({
+                    "hand_id": idx, 
+                    "handedness": handedness, 
+                    "gesture": gesture, 
+                    "confidence": float(conf)
+                })
                 
         return latency, len(results.hand_landmarks) if results.hand_landmarks else 0, data_list, out_frame
 
+    def toggle_recording(self) -> bool:
+        """Переключает статус записи видео"""
+        self.is_recording = not getattr(self, 'is_recording', False)
+        if not self.is_recording and getattr(self, 'video_writer', None) is not None:
+            self.video_writer.release()
+            self.video_writer = None
+        return self.is_recording
+
     def _cleanup(self):
         if self.cap: self.cap.release()
+        if getattr(self, 'video_writer', None): self.video_writer.release()
         if self.hands_model: self.hands_model.close()
         logger.info("Engine resources cleaned up")
 

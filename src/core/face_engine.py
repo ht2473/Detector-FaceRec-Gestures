@@ -85,9 +85,9 @@ class FaceRecognitionEngine(QThread):
         logger.info(f"🔍 ONNX Runtime providers: {providers}")
 
         try:
-            logger.info("🤖 Initializing InsightFace (buffalo_s) for CPU...")
-            # 🔥 Модель buffalo_s
-            self.app = FaceAnalysis(name='buffalo_s', providers=providers)
+            logger.info("🤖 Initializing InsightFace (buffalo_sc) for CPU...")
+            # 🔥 Модель buffalo_sc
+            self.app = FaceAnalysis(name='buffalo_sc', providers=providers)
             # 🔥 ctx_id=-1 явно указывает InsightFace использовать CPU
             self.app.prepare(ctx_id=-1, det_thresh=self.det_thresh, det_size=(self.imgsz, self.imgsz))
             logger.success("✅ InsightFace initialized successfully on CPU")

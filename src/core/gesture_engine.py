@@ -1,4 +1,4 @@
-"""Gesture Recognition Engine based on Metaidigitcv (cvzone wrapper) - Fixed Playback & Recording"""
+"""Gesture Recognition Engine based on MediaPipe - Refactored & Optimized"""
 import cv2
 import time
 import math
@@ -11,13 +11,14 @@ from PyQt6.QtGui import QImage
 from loguru import logger
 
 try:
-    from cvzone.HandTrackingModule import HandDetector
-    CVZONE_AVAILABLE = True
+    import mediapipe as mp
+    MEDIAPIPE_AVAILABLE = True
 except ImportError:
-    CVZONE_AVAILABLE = False
+    MEDIAPIPE_AVAILABLE = False
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent.parent
 OUTPUT_DIR = BASE_DIR / "output"
+
 
 class GestureRecognitionEngine(QThread):
     frame_ready = pyqtSignal(QImage)
@@ -40,30 +41,43 @@ class GestureRecognitionEngine(QThread):
         self.source_path = source_path.strip()
         self.max_hands = max_num_hands
         self.min_det_conf = min_detection_confidence
-        
+        self.min_track_conf = min_tracking_confidence
+
         self.running = False
-        self.detector = None
+        self.hands_detector = None
         self.cap: Optional[cv2.VideoCapture] = None
         self.is_recording = False
         self.video_writer: Optional[cv2.VideoWriter] = None
         self.record_lock = threading.Lock()
+
+        # Инициализация утилит отрисовки MediaPipe
+        if MEDIAPIPE_AVAILABLE:
+            self.mp_hands = mp.solutions.hands
+            self.mp_draw = mp.solutions.drawing_utils
+            self.mp_draw_styles = mp.solutions.drawing_styles
 
     def _convert_to_qimage(self, frame: np.ndarray) -> QImage:
         if frame is None or frame.size == 0:
             return QImage()
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
-        # Важно: bytesPerLine = ch * w для предотвращения искажений изображения
+        # bytesPerLine = ch * w предотвращает искажения при рендеринге в Qt
         return QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy()
 
     def run(self) -> None:
-        if not CVZONE_AVAILABLE:
-            self.error_occurred.emit("Install dependencies: pip install cvzone mediapipe")
+        if not MEDIAPIPE_AVAILABLE:
+            self.error_occurred.emit("Install dependencies: pip install mediapipe opencv-python PyQt6 loguru")
             return
 
         try:
-            self.detector = HandDetector(detectionCon=self.min_det_conf, maxHands=self.max_hands)
-            logger.info(f"Engine Metaidigitcv started | Mode: {self.source_type}")
+            self.hands_detector = self.mp_hands.Hands(
+                static_image_mode=False,
+                max_num_hands=self.max_hands,
+                model_complexity=1,
+                min_detection_confidence=self.min_det_conf,
+                min_tracking_confidence=self.min_track_conf
+            )
+            logger.info(f"Engine MediaPipe started | Mode: {self.source_type}")
         except Exception as e:
             self.error_occurred.emit(f"Init error: {e}")
             return
@@ -92,119 +106,149 @@ class GestureRecognitionEngine(QThread):
     def _process_stream(self):
         is_video = self.source_type in ["video", "video file"]
         
-        # Подключаемся к камере или открываем файл
         self.cap = cv2.VideoCapture(self.source_path if is_video else 0)
-        
         if not self.cap.isOpened():
             self.error_occurred.emit("Failed to open video source")
             return
 
         if not is_video:
-            # Настройки для веб-камеры: высокое разрешение, минимальный буфер
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-        # Безопасное получение FPS
         fps_source = self.cap.get(cv2.CAP_PROP_FPS)
         if not fps_source or fps_source <= 0 or math.isnan(fps_source):
-            fps_source = 30.0  # Fallback если камера/файл не отдает FPS
+            fps_source = 30.0
             
-        frame_delay = 1.0 / fps_source  # Время, которое должен занимать 1 кадр
-
+        frame_delay = 1.0 / fps_source
         start_time = time.time()
         frame_count = 0
 
         while self.running:
-            loop_start = time.perf_counter() # Засекаем начало обработки кадра
-
+            loop_start = time.perf_counter()
             ret, frame = self.cap.read()
             if not ret:
-                break # Конец файла видео или отключение камеры
+                break
 
             frame_count += 1
             latency, hands_count, data, out_frame = self._run_inference(frame)
 
-            # Запись кадра (потокобезопасно)
             with self.record_lock:
                 if self.is_recording:
                     if self.video_writer is None:
                         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
                         path = OUTPUT_DIR / f"rec_{int(time.time())}.mp4"
                         h, w = out_frame.shape[:2]
-                        # Используем fps_source для правильной скорости воспроизведения записанного видео
                         self.video_writer = cv2.VideoWriter(
-                            str(path), 
-                            cv2.VideoWriter_fourcc(*'mp4v'), 
-                            fps_source, 
+                            str(path),
+                            cv2.VideoWriter_fourcc(*'mp4v'),
+                            fps_source,
                             (w, h)
                         )
                     self.video_writer.write(out_frame)
 
             curr_fps = frame_count / (time.time() - start_time)
             
-            # Отправка сигналов в GUI
             self.frame_ready.emit(self._convert_to_qimage(out_frame))
             self.stats_ready.emit(curr_fps, latency, hands_count)
             self.data_ready.emit(data)
 
-            # --- ИСПРАВЛЕНИЕ: Искусственная задержка для видеофайлов ---
+            # Искусственная задержка для видеофайлов, чтобы сохранить оригинальную скорость
             if is_video:
                 processing_time = time.perf_counter() - loop_start
                 sleep_time = frame_delay - processing_time
                 if sleep_time > 0:
                     time.sleep(sleep_time)
 
+    def _get_fingers_up(self, landmarks, raw_handedness_label: str) -> List[int]:
+        """Определяет состояние пальцев [Thumb, Index, Middle, Ring, Pinky] по ладмаркам MediaPipe"""
+        fingers = [0] * 5
+        tips_ids = [8, 12, 16, 20]
+        pips_ids = [6, 10, 14, 18]
+
+        # Указательный, средний, безымянный, мизинец (сравнение по Y)
+        for i, (tip_id, pip_id) in enumerate(zip(tips_ids, pips_ids)):
+            if landmarks[tip_id].y < landmarks[pip_id].y:
+                fingers[i + 1] = 1
+
+        # Большой палец (сравнение по X с учётом руки)
+        # MediaPipe возвращает "Left"/"Right" с точки зрения человека (зеркально для камеры)
+        if raw_handedness_label == "Right":
+            if landmarks[4].x < landmarks[3].x:
+                fingers[0] = 1
+        else:  # Left
+            if landmarks[4].x > landmarks[3].x:
+                fingers[0] = 1
+
+        return fingers
+
     def _run_inference(self, frame: np.ndarray) -> Tuple[float, int, List[Dict], np.ndarray]:
         t0 = time.perf_counter()
-        
-        # findHands возвращает список рук. flipType=True исправляет зеркальность
-        hands, out_frame = self.detector.findHands(frame, draw=True, flipType=True)
-        
-        latency = (time.perf_counter() - t0) * 1000
+        h, w, _ = frame.shape
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = self.hands_detector.process(rgb_frame)
+        out_frame = frame.copy()
         data_list = []
+        hands_count = 0
 
-        for hand in hands:
-            fingers = self.detector.fingersUp(hand)
-            
-            # Определяем жест по комбинации пальцев [Большой, Указательный, Средний, Безымянный, Мизинец]
-            gesture = "Unknown"
-            if fingers == [0, 0, 0, 0, 0]:
-                gesture = "Fist"
-            elif fingers == [1, 1, 1, 1, 1]:
-                gesture = "Open Palm"
-            elif fingers == [0, 1, 0, 0, 0]:
-                gesture = "Pointing Up"
-            elif fingers == [0, 1, 1, 0, 0]:
-                gesture = "Victory"
-            elif fingers == [1, 0, 0, 0, 0]:
-                gesture = "Thumb Up"
-            elif fingers == [1, 1, 0, 0, 1]:
-                gesture = "I Love You"
+        if results.multi_hand_landmarks and results.multi_handedness:
+            hands_count = len(results.multi_hand_landmarks)
+            for hand_landmarks, handedness in zip(results.multi_hand_landmarks, results.multi_handedness):
+                # Отрисовка скелета руки
+                self.mp_draw.draw_landmarks(
+                    out_frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
+                    self.mp_draw_styles.get_default_hand_landmarks_style(),
+                    self.mp_draw_styles.get_default_hand_connections_style()
+                )
 
-            # БЕЗОПАСНОЕ извлечение данных
-            score = hand.get("score", 1.0) 
-            hand_type = hand.get("type", "Unknown")
-            bbox = hand.get("bbox", [0, 0, 0, 0])
+                # Данные классификации
+                raw_label = handedness.classification[0].label
+                # Инвертируем метку для соответствия виду с камеры (Right hand -> Left label в MP)
+                hand_type = "Right" if raw_label == "Left" else "Left"
+                score = handedness.classification[0].score
 
-            # Отрисовка текста над рукой
-            cv2.putText(out_frame, f"{hand_type}: {gesture}", (bbox[0] +70, bbox[1] - 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                # Вычисление Bounding Box
+                x_coords = [lm.x for lm in hand_landmarks.landmark]
+                y_coords = [lm.y for lm in hand_landmarks.landmark]
+                x_min, x_max = int(min(x_coords) * w), int(max(x_coords) * w)
+                y_min, y_max = int(min(y_coords) * h), int(max(y_coords) * h)
+                bbox = [x_min, y_min, x_max - x_min, y_max - y_min]
 
-            data_list.append({
-                "handedness": hand_type,
-                "gesture": gesture,
-                "confidence": score,
-                "bbox": bbox
-            })
+                # Определение поднятых пальцев и жеста
+                fingers = self._get_fingers_up(hand_landmarks.landmark, raw_label)
+                gesture = "Unknown"
+                if fingers == [0, 0, 0, 0, 0]:
+                    gesture = "Fist"
+                elif fingers == [1, 1, 1, 1, 1]:
+                    gesture = "Open Palm"
+                elif fingers == [0, 1, 0, 0, 0]:
+                    gesture = "Pointing Up"
+                elif fingers == [0, 1, 1, 0, 0]:
+                    gesture = "Victory"
+                elif fingers == [1, 0, 0, 0, 0]:
+                    gesture = "Thumb Up"
+                elif fingers == [1, 1, 0, 0, 1]:
+                    gesture = "I Love You"
 
-        return latency, len(hands), data_list, out_frame
+                # Отрисовка текста
+                cv2.putText(out_frame, f"{hand_type}: {gesture}", (bbox[0] + 10, bbox[1] - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
+                data_list.append({
+                    "handedness": hand_type,
+                    "gesture": gesture,
+                    "confidence": score,
+                    "bbox": bbox
+                })
+
+        latency = (time.perf_counter() - t0) * 1000
+        return latency, hands_count, data_list, out_frame
 
     def toggle_recording(self) -> bool:
         with self.record_lock:
             self.is_recording = not self.is_recording
             if not self.is_recording and self.video_writer:
-                self.video_writer.release() 
+                self.video_writer.release()
                 self.video_writer = None
         return self.is_recording
 
@@ -215,6 +259,9 @@ class GestureRecognitionEngine(QThread):
         with self.record_lock:
             if self.video_writer:
                 self.video_writer.release()
+                self.video_writer = None
+        if self.hands_detector:
+            self.hands_detector.close()
         logger.info("✅ Engine resources cleaned up")
 
     def stop(self):

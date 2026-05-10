@@ -17,10 +17,10 @@ face_recognition:
   det_threshold: 0.50
   rec_similarity: 0.35
   face_db_dir: ""  # Путь к папке с фото (имя файла = имя человека)
-  image_size: 320
+  image_size: 640
 
 device:
-  prefer: "cpu"  # cpu
+  prefer: "cpu"  
 
 export:
   save_video: true

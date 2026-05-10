@@ -20,7 +20,6 @@ https://visualstudio.microsoft.com/ru/visual-cpp-build-tools/
 pip install onnxruntime
 pip install insightface
 pip install mediapipe
-pip install cvzone mediapipe
 
 # Запуск проекта
 python main.py

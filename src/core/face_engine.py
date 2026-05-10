@@ -29,13 +29,13 @@ class FaceRecognitionEngine(QThread):
         det_thresh: float = 0.5,
         rec_thresh: float = 0.35,
         face_db_dir: str = "",
-        imgsz: int = 320,  # 🔥 Изменено на 320 по умолчанию для скорости
-        skip_frames: int = 5 # 🔥 Обрабатываем только каждый 5-й кадр
+        imgsz: int = 640,  
+        skip_frames: int = 1 
     ):
         super().__init__()
         self.source_type = source_type.strip()
         self.source_path = source_path.strip()
-        self.device = "cpu" # Принудительно CPU
+        self.device = "cpu" 
         self.det_thresh = det_thresh
         self.rec_thresh = rec_thresh
         self.imgsz = imgsz

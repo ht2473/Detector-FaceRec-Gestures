@@ -63,4 +63,4 @@ htmlcov/
 # ── PyInstaller ──────────────────────────────────────────────────────────────
 *.spec
 # keep our spec in version control:
-!DetectorApp.spec
+# !DetectorApp.spec

@@ -1,44 +1,66 @@
-# --- Окружение и зависимости ---
-# Игнорируем виртуальное окружение, чтобы не загружать гигабайты библиотек
-venv/
-.env
+# ── Python ──────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
+*.pyd
+.Python
 
-# --- Сборка и дистрибуция ---
-# Игнорируем папки, которые создает PyInstaller
+# ── Virtual environments ─────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── Distribution / packaging ─────────────────────────────────────────────────
 build/
 dist/
-*.spec
+*.egg-info/
+*.egg
+wheels/
 
-# --- Специфично для проекта ---
-# Логи работы программы
-logs/
-*.log
-
-# Тяжелые модели нейросетей (они должны скачиваться отдельно или быть в релизе)
-models/*.onnx
+# ── ML models (large binaries — download separately) ─────────────────────────
 models/*.pt
-models/*.weights
-models/*.pth
-*.task
+models/*.onnx
+models/*.engine
+models/*.tflite
+!models/.gitkeep
 
-# База данных лиц (содержит персональные данные)
-Face DB/
+# ── MediaPipe task file (large binary) ───────────────────────────────────────
+hand_landmarker.task
 
-# Результаты работы (видео, скриншоты, JSON отчеты)
-output/
-*.mp4
-*.avi
-*.jpg
-*.png
-*.json
+# ── InsightFace model cache ───────────────────────────────────────────────────
+~/.insightface/
 
-# --- Системные файлы и IDE ---
-.DS_Store
-Thumbs.db
+# ── Application output ───────────────────────────────────────────────────────
+output/*
+!output/.gitkeep
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+logs/*.log
+!logs/.gitkeep
+
+# ── Face database (personal data) ────────────────────────────────────────────
+FaceDB/*
+!FaceDB/.gitkeep
+
+# ── IDE / editors ────────────────────────────────────────────────────────────
 .idea/
 .vscode/
 *.swp
+*.swo
+.DS_Store
+Thumbs.db
 
+# ── pytest / coverage ────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── mypy ─────────────────────────────────────────────────────────────────────
+.mypy_cache/
+
+# ── PyInstaller ──────────────────────────────────────────────────────────────
+*.spec
+# keep our spec in version control:
+!DetectorApp.spec

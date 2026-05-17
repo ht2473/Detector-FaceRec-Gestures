@@ -4,7 +4,7 @@ Desktop application for real-time **object detection**, **face recognition** and
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![PyQt6](https://img.shields.io/badge/PyQt6-6.7%2B-green)
-![YOLO](https://img.shields.io/badge/YOLO-v11-orange)
+![YOLO](https://img.shields.io/badge/YOLO-26-orange)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 ---

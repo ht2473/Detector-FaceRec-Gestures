@@ -79,6 +79,7 @@ class DetectionEngine(QThread):
 
         # ── resolve device ──────────────────────────────────────────────────
         actual_device = _resolve_device(self.device)
+        self.device = actual_device  # store resolved value so use_half check works
         logger.info(f"🖥️  Device: {actual_device.upper()}")
 
         if actual_device == "cuda":
@@ -229,7 +230,7 @@ class DetectionEngine(QThread):
         # down-scale imgsz for very large frames to keep latency predictable
         imgsz = min(self.imgsz, 640) if max(h, w) > 1920 else self.imgsz
         use_half = (
-            self.device not in ("cpu",)
+            self.device == "cuda"
             and torch.cuda.is_available()
             and self._model is not None
         )

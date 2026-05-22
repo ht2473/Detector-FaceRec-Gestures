@@ -1,50 +1,45 @@
-# ── Python ──────────────────────────────────────────────────────────────────
+# ── Python ───────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
-*.pyo
-*.pyd
 .Python
 
-# ── Virtual environments ─────────────────────────────────────────────────────
+# ── Virtual environments ──────────────────────────────────────────────────────
 venv/
 .venv/
 env/
 ENV/
 
-# ── Distribution / packaging ─────────────────────────────────────────────────
+# ── Distribution / packaging ──────────────────────────────────────────────────
 build/
 dist/
 *.egg-info/
 *.egg
 wheels/
 
-# ── ML models (large binaries — download separately) ─────────────────────────
+# ── ML models (large binaries — download separately) ──────────────────────────
 models/*.pt
 models/*.onnx
 models/*.engine
 models/*.tflite
 !models/.gitkeep
 
-# ── MediaPipe task file (large binary) ───────────────────────────────────────
+# ── MediaPipe task file (large binary) ────────────────────────────────────────
 hand_landmarker.task
 
-# ── InsightFace model cache ───────────────────────────────────────────────────
-~/.insightface/
-
-# ── Application output ───────────────────────────────────────────────────────
+# ── Application output ────────────────────────────────────────────────────────
 output/*
 !output/.gitkeep
 
-# ── Logs ─────────────────────────────────────────────────────────────────────
-logs/*.log
+# ── Logs ──────────────────────────────────────────────────────────────────────
+logs/*
 !logs/.gitkeep
 
-# ── Face database (personal data) ────────────────────────────────────────────
+# ── Face database (personal data) ─────────────────────────────────────────────
 FaceDB/*
 !FaceDB/.gitkeep
 
-# ── IDE / editors ────────────────────────────────────────────────────────────
+# ── IDE / editors ─────────────────────────────────────────────────────────────
 .idea/
 .vscode/
 *.swp
@@ -52,15 +47,10 @@ FaceDB/*
 .DS_Store
 Thumbs.db
 
-# ── pytest / coverage ────────────────────────────────────────────────────────
+# ── pytest / coverage ─────────────────────────────────────────────────────────
 .pytest_cache/
 .coverage
 htmlcov/
 
-# ── mypy ─────────────────────────────────────────────────────────────────────
+# ── mypy ──────────────────────────────────────────────────────────────────────
 .mypy_cache/
-
-# ── PyInstaller ──────────────────────────────────────────────────────────────
-*.spec
-# keep our spec in version control:
-# !DetectorApp.spec

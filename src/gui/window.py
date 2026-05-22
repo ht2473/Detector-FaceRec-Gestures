@@ -35,11 +35,12 @@ from PyQt6.QtWidgets import (
 from src.core.engine import DetectionEngine
 from src.core.face_engine import FaceRecognitionEngine
 from src.core.gesture_engine import GestureRecognitionEngine
-from src.utils.helpers import ensure_dir
+from src.utils.helpers import ensure_dir, load_yaml_config
 
-BASE_DIR   = pathlib.Path(__file__).resolve().parent.parent.parent
-MODELS_DIR = BASE_DIR / "models"
-OUTPUT_DIR = BASE_DIR / "output"
+BASE_DIR    = pathlib.Path(__file__).resolve().parent.parent.parent
+MODELS_DIR  = BASE_DIR / "models"
+OUTPUT_DIR  = BASE_DIR / "output"
+CONFIG_PATH = BASE_DIR / "configs" / "default.yaml"
 
 _MAX_HISTORY = 5_000   # cap per-session detection lists to avoid unbounded RAM
 
@@ -69,12 +70,11 @@ class MainWindow(QMainWindow):
         self.gesture_history:   List[Dict] = []
         self._last_ui_update:   float = 0.0
 
-        # config snapshots (updated from UI on START)
-        _default_device = "cuda" if torch.cuda.is_available() else "cpu"
+        # config snapshots — baseline defaults (overridden by _load_defaults from YAML)
         self.det_config: Dict = {
             "source_type": "webcam", "source_path": "",
             "model_name": "yolo26s.pt",
-            "device": _default_device,
+            "device": "cuda" if torch.cuda.is_available() else "cpu",
             "conf": 0.25, "iou": 0.45, "imgsz": 640,
         }
         self.face_config: Dict = {
@@ -91,8 +91,52 @@ class MainWindow(QMainWindow):
             "max_num_hands": 2,
         }
 
+        self._load_defaults()   # override above from configs/default.yaml
+
         self._build_ui()
         logger.info("🚀 Application started")
+
+    # ── config loading ─────────────────────────────────────────────────────
+    def _load_defaults(self) -> None:
+        """Read configs/default.yaml and populate *_config dicts with its values."""
+        cfg = load_yaml_config(CONFIG_PATH)
+        if not cfg:
+            logger.warning("⚠️  Could not read default.yaml — using built-in defaults")
+            return
+
+        det = cfg.get("detection", {})
+        model = cfg.get("model", {})
+        face = cfg.get("face_recognition", {})
+        gesture = cfg.get("gesture", {})
+        device_pref = cfg.get("device", {}).get("prefer", "auto")
+        _default_device = (
+            "cuda" if (device_pref in ("auto", "cuda") and torch.cuda.is_available())
+            else "cpu"
+        )
+
+        self.det_config.update({
+            "model_name": model.get("default", self.det_config["model_name"]),
+            "device":     _default_device,
+            "conf":       det.get("confidence_threshold", self.det_config["conf"]),
+            "iou":        det.get("iou_threshold",        self.det_config["iou"]),
+            "imgsz":      det.get("image_size",           self.det_config["imgsz"]),
+        })
+        self.face_config.update({
+            "det_thresh":  face.get("det_threshold",   self.face_config["det_thresh"]),
+            "rec_thresh":  face.get("rec_similarity",  self.face_config["rec_thresh"]),
+            "imgsz":       face.get("image_size",      self.face_config["imgsz"]),
+            "skip_frames": face.get("skip_frames",     self.face_config["skip_frames"]),
+            "face_db_dir": face.get("face_db_dir",     self.face_config["face_db_dir"]),
+        })
+        self.gesture_config.update({
+            "min_detection_confidence": gesture.get("min_detection_confidence",
+                                                    self.gesture_config["min_detection_confidence"]),
+            "min_tracking_confidence":  gesture.get("min_tracking_confidence",
+                                                    self.gesture_config["min_tracking_confidence"]),
+            "max_num_hands":            gesture.get("max_num_hands",
+                                                    self.gesture_config["max_num_hands"]),
+        })
+        logger.success("✅ Config loaded from default.yaml")
 
     # ══════════════════════════════════════════════════════════ UI construction
     def _build_ui(self) -> None:
@@ -771,13 +815,13 @@ class MainWindow(QMainWindow):
     def _gesture_toggle_rec(self) -> None:
         if not (self.gesture_engine and self.gesture_engine.isRunning()):
             return
-        now_recording = self.gesture_engine.toggle_recording()
-        if now_recording:
-            self.gesture_rec.setText("⏹ STOP REC")
-            self.status_bar.showMessage("🔴 Recording…")
-        else:
+        stopped = self.gesture_engine.toggle_recording()
+        if stopped:
             self.gesture_rec.setText("🔴 REC")
             self.status_bar.showMessage(f"💾 Video saved → {OUTPUT_DIR}")
+        else:
+            self.gesture_rec.setText("⏹ STOP REC")
+            self.status_bar.showMessage("🔴 Recording…")
 
     def _gesture_screenshot(self) -> None:
         pix = self.gesture_video.pixmap()
@@ -852,48 +896,3 @@ def img_to_pixmap(q_img, target_size) -> QPixmap:
         Qt.AspectRatioMode.KeepAspectRatio,
         Qt.TransformationMode.FastTransformation,
     )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-def main() -> None:
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-    app.setStyleSheet("""
-        * { font-family: 'Segoe UI', sans-serif; }
-        QMainWindow, QWidget { background: #1a1a1a; color: #eee; }
-        QLabel  { color: #ddd; }
-        QGroupBox { border: 1px solid #333; border-radius: 6px; margin-top: 8px; }
-        QComboBox, QLineEdit {
-            background: #2a2a2a; border: 1px solid #444;
-            border-radius: 4px; color: #fff; padding: 4px;
-        }
-        QPushButton { border: none; border-radius: 5px; padding: 6px 12px; }
-        QTextEdit   {
-            background: #111; border: 1px solid #333;
-            border-radius: 4px; font-family: Consolas; font-size: 11px;
-        }
-        QScrollBar { background: #222; width: 10px; }
-        QScrollBar::handle { background: #555; border-radius: 4px; }
-        QTabWidget::pane { border: 1px solid #444; background: #1a1a1a; }
-        QTabBar::tab {
-            background: #2a2a2a; color: #aaa;
-            padding: 8px 16px;
-            border-top-left-radius: 6px; border-top-right-radius: 6px;
-        }
-        QTabBar::tab:selected { background: #3a3a3a; color: #fff; font-weight: 600; }
-        QSlider::groove:horizontal {
-            background: #2a2a2a; border: 1px solid #444;
-            height: 6px; border-radius: 3px;
-        }
-        QSlider::handle:horizontal {
-            background: #3498db; border: none;
-            width: 14px; margin: -4px 0; border-radius: 7px;
-        }
-    """)
-    win = MainWindow()
-    win.show()
-    sys.exit(app.exec())
-
-
-if __name__ == "__main__":
-    main()

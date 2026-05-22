@@ -277,14 +277,15 @@ class GestureRecognitionEngine(QThread):
 
     # ------------------------------------------------------------------ recording
     def toggle_recording(self) -> bool:
-        """Returns True when recording has just *started* (for UI button state)."""
+        """Toggle recording on/off.  Returns True when recording has just **stopped**."""
         with self._record_lock:
             self._recording = not self._recording
             if not self._recording and self._writer is not None:
                 self._writer.release()
                 self._writer = None
                 logger.success(f"💾 Gesture video saved → {OUTPUT_DIR}")
-        return self._recording
+                return True   # stopped
+        return False          # started
 
     # ------------------------------------------------------------------ cleanup / stop
     def _cleanup(self) -> None:
